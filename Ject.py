@@ -100,6 +100,14 @@ def RFMmodel(df):
     RFM_data['RFMScore'] = RFM_data['RecencyScore'].astype('str') + RFM_data['FMScore'].astype('str') 
 
     RFM_data['Segment'] = RFM_data['RFMScore'].apply(segment_label)
+
+    # Calculate average values for each RFM_Segment_Label
+    segment_summary = RFM_data.groupby('Segment').agg(
+        Recency_Avg=('recency', 'mean'),
+        Frequency_Avg=('frequency', 'mean'),
+        Monetary_Avg=('monetary', 'mean'),
+        Segment_Size=('Segment', 'count')
+    ).reset_index()
     
     result = RFM_data.groupby(['Segment'])['Segment'].count()
     values = list(result)
@@ -117,6 +125,8 @@ def RFMmodel(df):
     plt.tick_params(axis='x', colors='white', labelsize=14)  
     plt.tick_params(axis='y', colors='white', labelsize=14)  
     st.pyplot(plt)
+
+    return segment_summary
 # End def #
 
 ### Definition plot metric ###
@@ -195,6 +205,9 @@ if submit:
         stringio = StringIO(uploaded_file.getvalue().decode("utf-8"))
 
         df = load_data(uploaded_file)
+
+    if uploaded_file.name == 'Data_Sample.csv':
+        RFMmodel(df)
 
     if uploaded_file.name == 'OnlineRetail.csv':
         # Filter data #
@@ -313,7 +326,7 @@ if submit:
 
                 ### Top 5 ###
                 # Select the top 5 of Quantity
-                filtered_df_product = filtered_df.groupby(by=['StockCode', 'Description'], as_index=False).agg({'Quantity': 'sum','TotalSales': 'sum','StockCode' : 'count'})
+                filtered_df_product = df.groupby(by=['StockCode', 'Description'], as_index=False).agg({'Quantity': 'sum','TotalSales': 'sum','StockCode' : 'count'})
                 filtered_df_product = filtered_df_product.rename(columns = {'Quantity': 'Total Quantity','TotalSales': 'Total Sales per Product','StockCode' : 'Total orders per product'})
                 top_5_products = filtered_df_product.nlargest(5, 'Total Quantity')
 
@@ -395,18 +408,11 @@ if submit:
                                         template="gridon")
                     st.plotly_chart(fig_line2, use_container_width=True) 
 
-                # Product Sales Summary
-                st.subheader("Product Sales Summary")
-                filtered_df_product = filtered_df.groupby(by=['StockCode','Description'], as_index=False).agg({'Quantity': 'sum','TotalSales': 'sum','StockCode' : 'count'})
-                filtered_df_product = filtered_df_product.rename(columns = {'Quantity': 'Total Quantity','TotalSales': 'TotalSales per Procuct','StockCode' : 'Total orders per product'})
-
-                st.dataframe(filtered_df_product, width=1000)
-
 ### Summarizing the results ###
         with tab2:
             with st.expander("Data Preview"):
                 st.markdown(f"Number of data: {len(df):,}")
-                variables = '''This dataframe contains 8 variables that correspond to:  
+                variables = '''**This dataframe contains 8 variables that correspond to:**  
     **InvoiceNo**: Invoice number. Nominal, a 6-digit integral number uniquely assigned to each transaction. If this code starts with letter 'c', it indicates a cancellation.  
     **StockCode**: Product (item) code. Nominal, a 5-digit integral number uniquely assigned to each distinct product.  
     **Description**: Product (item) name. Nominal.  
@@ -421,21 +427,36 @@ if submit:
 
             cleaned_data = CleansingData(uploaded_file)
             with st.expander("Data for RFM model"):
-                st.write(cleaned_data)               
-                csv = cleaned_data.to_csv().encode("utf-8")
-                st.download_button(
-                    label="Download cleaned data as CSV",
-                    data=csv,
-                    file_name="RFM of Online Retail.csv",
-                    mime="text/csv",
-                )
+                st.markdown(f"Number of data: {len(cleaned_data):,}")
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.write(cleaned_data)               
+                    csv = cleaned_data.to_csv().encode("utf-8")
+                    st.download_button(
+                        label="Download cleaned data as CSV",
+                        data=csv,
+                        file_name="RFM of Online Retail.csv",
+                        mime="text/csv",
+                    )
+                with c2:
+                    segment_summary = RFMmodel(cleaned_data)
 
-            df_summary = pd.DataFrame([{'products': len(df['StockCode'].value_counts()),    
-               'transactions': len(df['InvoiceNo'].value_counts()),
-               'customers': len(df['CustomerID'].value_counts()),
-               'countries': len(df['Country'].value_counts()),
-               'canceled_products': len(df[df['InvoiceNo'].str.contains('C', na=False)])
-              }], columns = ['products', 'transactions', 'customers', 'countries', 'canceled_products'], index = ['quantity'])
+            st.write(segment_summary)
+
+            ### Summarized Results ###
+            with st.expander('Insights of Customer behavior'):  
+                st.markdown('จะเห็นได้ว่ามีลูกค้าเพียงประมาณ 45% ที่อยู่ในระดับ RFM สูงสุด ร้านค้าจะต้องพยายามรักษาความภักดีนี้ไว้ และต้องกระตุ้นลูกค้าในส่วนที่เหลือให้ได้มากที่สุด\n'
+                'ซึ่งลูกค้าส่วนใหญ่จะอยู่ที่ Lost, Loyal Customer, Hibernating และ Champion ตามลำดับ โดยทางเราได้ทำการวิเคราะห์กลยุทธ์ทางตลาด ดังนี้\n'
+                'Champion (15.30%): ลูกค้ากลุ่มนี้มีความมั่งคั่งทางการเงินค่อนข้างสูง ค่าใช้จ่ายเฉลี่ยอยู่ที่ 442เหรียญ/ครั้ง คาดว่าส่วนใหญ่เป็นนักธุรกิจและมีความจำเป็นต้องใช้สินค้าของทางร้านบ่อยๆ ทางร้านค้าควรที่จะคอยหมั่นเสนอสิทธิพิเศษให้แก่ลูกค้ากลุ่มนี้ เช่น สิทธิ์ในการสั่งซื้อสินค้าล่วงหน้าและเข้าถึงสินค้าได้ก่อนใคร ส่วนลดสำหรับสมาชิกระดับสูง หรือ กิจกรรมพิเศษ\n'
+                'Loyal Customer (20.36%): ขาชอปประจำร้าน เฉลี่ยซื้อครั้งละ 371เหรียญ/ครั้ง ทางร้านค้าควร'
+                'Potential Loyalist (9.79%): ลูกค้ากลุ่มนี้กระเป๋าหนัก ออกแนวชอบตุนของ อาจจะชอบสินค้าที่ลดราคาหรือมีการลดแลกแจกแถมเป็นพิเศษ ทางร้านควรแจกของสมนาคุณในการซื้อครั้งต่อไป หรือ เสนอส่วนลดพิเศษสำหรับสมาชิก เพื่อแสดงว่าเราให้ความสำคัญกับพวกเขา\n')  
+
+            df_summary = pd.DataFrame([{'products': len(df['StockCode'].value_counts()),  
+                'canceled_products': len(df[df['InvoiceNo'].str.contains('C', na=False)]),  
+                'transactions': len(df['InvoiceNo'].value_counts()),
+                'customers': len(df['CustomerID'].value_counts()),
+                'countries': len(df['Country'].value_counts())
+              }], columns = ['Products', 'Canceled products', 'Transactions', 'Customers', 'Countries'], index = ['Quantity'])
             st.dataframe(df_summary)
 
             # Customer Invoice Summary
@@ -444,6 +465,12 @@ if submit:
             df_productCount = df_productCount.rename(columns={'InvoiceDate': 'List Product per Invoice','Quantity': 'Total Quantity Product'})
             df_productCount[:10].sort_values('CustomerID')
             st.dataframe(df_productCount)
+
+            # Product Sales Summary
+            st.subheader("Product Sales Summary")
+            df_product = df.groupby(by=['StockCode','Description'], as_index=False).agg({'Quantity': 'sum','TotalSales': 'sum','StockCode' : 'count'})
+            df_product = df_product.rename(columns = {'Quantity': 'Total Quantity','TotalSales': 'TotalSales per Product','StockCode' : 'Total orders per product'})
+            st.dataframe(df_product, width=1000)
 
 
 
