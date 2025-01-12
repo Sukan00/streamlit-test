@@ -8,7 +8,6 @@ import plotly.graph_objs as go
 import matplotlib.pyplot as plt
 import plotly.express as px
 
-
 ### Page setup ###
 st.set_page_config(page_title="Analysis Dashboard", page_icon=":bar_chart:", layout="wide")
 st.markdown('<style>div.block-container{padding-top:1.5rem;}</style>',unsafe_allow_html=True) #ปรับ top padding
@@ -206,62 +205,27 @@ if submit:
 
         df = load_data(uploaded_file)
 
-    if uploaded_file.name == 'Data_Sample.csv':
+    if uploaded_file.name == 'Data_sample.csv':
         RFMmodel(df)
 
     if uploaded_file.name == 'OnlineRetail.csv':
-        # Filter data #
-        with st.sidebar:
-            st.header("Choose your filter: ")
-
-            d1,d2 = st.columns(2)
-
-            df["InvoiceDate"] = pd.to_datetime(df["InvoiceDate"])
-
-            with d1:
-                start_date = pd.to_datetime(st.date_input("Start date", df['InvoiceDate'].min()))
-            with d2:
-                end_date = pd.to_datetime(st.date_input("End date", df['InvoiceDate'].max()))
-        
-            # Filter data for Country
-            country = st.multiselect("Pick countries", sorted(df["Country"].unique())) 
-            if not country:
-                filtered_df = df.copy()
-            else:
-                filtered_df = df[df["Country"].isin(country)]
-
-            # Filter data for Date
-            if start_date <= end_date:
-                df = df[(df["InvoiceDate"] >= start_date) & (df["InvoiceDate"] <= end_date)].copy()
-            else:
-                st.error("End date must be after start date.")  
-
-            filtered_df['TotalSales'] = df['Quantity'] * df['UnitPrice']
-
-            filtered_df['InvoiceDate'] = pd.to_datetime(df['InvoiceDate'])
-            filtered_df['Date'] = filtered_df['InvoiceDate'].dt.to_period('D').astype(str)
-            filtered_df['Month'] = filtered_df['InvoiceDate'].dt.to_period('M').astype(str)
-
-            # Calculate total daily sales
-            daily_sales = filtered_df.groupby('Date', as_index=False)['TotalSales'].sum()
-
-            # Calculate monthly total sales
-            monthly_sales = filtered_df.groupby('Month', as_index=False)['TotalSales'].sum()
-
-
         tab1, tab2 = st.tabs(['Dashbord', 'Summarizing'])
-
-### Dashbord ###        
+    ### Dashbord ###        
         with tab1:
             cleaned_data = CleansingData(uploaded_file)
             RFMmodel(cleaned_data)
 
             if uploaded_file.name == 'OnlineRetail.csv':
+                df = df.dropna()
+                df = df.drop_duplicates()
+
+                df['InvoiceDate'] = pd.to_datetime(df['InvoiceDate'])
+                max_year = max(df['InvoiceDate'].dt.year.unique())
+
+                df['TotalSales'] = df['Quantity'] * df['UnitPrice']
+                canceled_products = df[df['InvoiceNo'].str.contains('C', na=False)]
 
                 c1, c2, c3 = st.columns(3)
-            
-                max_year = max(df['InvoiceDate'].dt.year.unique())
-                df['TotalSales'] = df['Quantity'] * df['UnitPrice']
 
                 with c1:
                     plot_metric(
@@ -281,15 +245,55 @@ if submit:
                     plot_metric("Total number of members", 
                                 len(df['CustomerID'].value_counts()),
                                 prefix="", suffix="", show_graph=False)
+                    
+                # Graph comparing total sales vs canceled sales
+                totalSales_canceled = canceled_products['TotalSales'].sum()
+                totalSales_non_canceled = df['TotalSales'].sum()
 
-                temp = df[['CustomerID', 'InvoiceNo', 'Country']].groupby(['CustomerID', 'InvoiceNo', 'Country']).count()
-                temp = temp.reset_index(drop = False)
-                countries = temp['Country'].value_counts()
+                # Create DataFrame for Comparing
+                sales_comparison = pd.DataFrame({
+                    'Status': ['Non-Canceled', 'Canceled'],
+                    'Total Sales': [totalSales_non_canceled, totalSales_canceled]
+                })
+                fig_bar1 = px.bar(sales_comparison, x='Status',y='Total Sales',text='Total Sales',
+                                title="Comparison of Total Sales: Non-Canceled vs Canceled Orders",
+                                color='Status',
+                                color_discrete_map={'Non-Canceled': 'green', 'Canceled': 'red'}
+                )
+                st.plotly_chart(fig_bar1, use_container_width=True)
+
+                cl1 , cl2 = st.columns(2)
+                with cl1:
+                    df = df[~df.isin(canceled_products)].dropna()
+                    with st.expander("Non-Canceled Orders"):
+                        st.write(f"*Number of orders by members: {len(df):,}*")
+                        st.write(df)
+
+                with cl2:
+                    with st.expander("Canceled Orders"):
+                        st.write(f"Number of products that were canceled: {len(canceled_products):,}")
+                        st.write(canceled_products)
+
+                
+                filtered_df = df.copy()
+                filtered_df['TotalSales'] = df['Quantity'] * df['UnitPrice']
+                filtered_df['InvoiceDate'] = pd.to_datetime(df['InvoiceDate'])
+                filtered_df['Date'] = filtered_df['InvoiceDate'].dt.strftime("%Y-%m-%d")
+                filtered_df['Month'] = filtered_df['InvoiceDate'].dt.to_period('M').astype(str)
+
+                # Calculate total daily sales
+                daily_sales = filtered_df.groupby('Date', as_index=False)['TotalSales'].sum()
+
+                # Calculate monthly total sales
+                monthly_sales = filtered_df.groupby('Month', as_index=False)['TotalSales'].sum()
 
                 a1, a2 = st.columns(2)
-
-                # Define the data for the choropleth map
                 with a1:
+                    temp = df[['CustomerID', 'InvoiceNo', 'Country']].groupby(['CustomerID', 'InvoiceNo', 'Country']).count()
+                    temp = temp.reset_index(drop = False)
+                    countries = temp['Country'].value_counts()
+
+                    # Define the data for the choropleth map
                     data = dict(
                         type='choropleth',
                         locations=countries.index,
@@ -330,13 +334,13 @@ if submit:
                 filtered_df_product = filtered_df_product.rename(columns = {'Quantity': 'Total Quantity','TotalSales': 'Total Sales per Product','StockCode' : 'Total orders per product'})
                 top_5_products = filtered_df_product.nlargest(5, 'Total Quantity')
 
-                # Graph
+                # graph
                 fig_pie2 = px.pie(top_5_products, values = top_5_products['Total Quantity'] , names = 'Description',
                                 title = "Top 5 Products by Total Quantity")
                 fig_pie2.update_traces(text = filtered_df['Description'] , textposition = "outside")
                 st.plotly_chart(fig_pie2)
             
-                # Select the top 5
+                # Select the top 5 
                 top_5_products = filtered_df_product.nlargest(5, 'Total Sales per Product')
 
                 # graph
@@ -388,8 +392,6 @@ if submit:
                     filtered_df['TimePeriod'] = filtered_df['InvoiceDate'].dt.hour.apply(time_of_day)
                     time_period_sales = filtered_df.groupby('TimePeriod' , as_index=False)['TotalSales'].sum()
                     fig_bar1 = px.bar(time_period_sales, x='TimePeriod', y='TotalSales', color='TimePeriod')
-                    
-                    st.subheader("Sales by Time Period")
                     st.plotly_chart(fig_bar1, use_container_width=True)
 
                 cl1 , cl2 = st.columns(2)
@@ -450,7 +452,7 @@ if submit:
                 **Champion** (15.30%): ลูกค้ากลุ่มนี้มีความมั่งคั่งทางการเงินค่อนข้างสูง ค่าใช้จ่ายเฉลี่ยอยู่ที่ 442เหรียญ/ครั้ง คาดว่าส่วนใหญ่เป็นนักธุรกิจและมีความจำเป็นต้องใช้สินค้าของทางร้านบ่อยๆ ทางร้านค้าควรที่จะคอยหมั่นเสนอสิทธิพิเศษให้แก่ลูกค้ากลุ่มนี้ เช่น สิทธิ์ในการสั่งซื้อสินค้าล่วงหน้าและเข้าถึงสินค้าได้ก่อนใคร ส่วนลดสำหรับสมาชิกระดับสูง หรือ กิจกรรมพิเศษ  
                 **Loyal Customer** (20.36%): ขาชอปประจำร้าน เฉลี่ยซื้อครั้งละ 371เหรียญ/ครั้ง ทางร้านค้าควรรักษาการติดต่อระหว่างลูกค้ากลุ่มนี้ไว้ ส่งสิทธิพิเศษ กิจกรรมสะสมแต้มจากยอดสั่งซื้อ หรือ โปรโมชั่นสินค้าที่ลูกค้ากลุ่มนี้ซื้อบ่อยๆ เพื่อกระตุ้นให้พวกเขาใช้จ่ายอยู่เสมอ  
                 **Potential Loyalist** (9.79%): ลูกค้ากลุ่มนี้อาจจะเปลี่ยนตัวเลือกร้านค้าเป็นร้านของคุณแทน หากพวกเขาชื่นชอบสินค้าลดราคา หรือมีการลดแลกแจกแถมเป็นพิเศษ ทางร้านควรแจกของสมนาคุณในการซื้อครั้งต่อไป เสนอส่วนลดพิเศษสำหรับสมาชิก หรือ โปรโมชั่นส่งฟรีหากยอดชำระถึงเกณฑ์ที่กำหนดไว้ เพื่อแสดงว่าทางร้านให้ความสำคัญกับพวกเขา  
-                **Needs Attention** (4.69%): ลูกค้ากลุ่มนี้ห่างหายจากร้านไปค่อนข้างนาน แต่มีการซื้อเฉลี่ยต่อครั้งค่อนข้างสูง อยู่ที่ประมาณ 300เหรียญ/ครั้ง ทางร้านค้าควรติดต่อสอบถามข้อมูลและหาแนวทางปรับแก้ไขเพื่อให้ลูกค้ากลับมาใช้บริการอีกครั้ง อาจจัดโปรโมชั่นต้อนรับสมาชิกเก่าที่ห่างหายไปนาน หรือ เพิ่มเติมสินค้าให้ตรงกับความต้องการของลูกค้า และอาจจะสร้างการรับรู้ถึง Brands ให้มากยิ่งขึ้น  
+                **Needs Attention** (4.69%): ลูกค้ากลุ่มนี้ห่างหายจากร้านไปค่อนข้างนาน แต่มีการซื้อเฉลี่ยต่อครั้งค่อนข้างสูง อยู่ที่ประมาณ 300เหรียญ/ครั้ง ทางร้านค้าควรติดต่อสอบถามข้อมูลและหาแนวทางปรับแก้ไขเพื่อให้ลูกค้ากลับมาใช้บริการอีกครั้ง อาจจัดโปรโมชั่นต้อนรับสมาชิกเก่าที่ห่างหายไปนาน หรือ เพิ่มเติมสินค้าให้ตรงกับความต้องการของลูกค้า และอาจจะสร้างการรับรู้ถึง Brands ให้มากยิ่งขึ้น  bbbbbbbb
                 **Hibernating** (15.65%): แม้ว่าลูกค้ากลุ่มนี้จะขาดการสั่งซื้อไปนานแล้ว แต่หากสามารถเชิญชวนกลับมาได้จะช่วยให้ยอดขายเพิ่มขึ้นค่อนข้างสูง เนื่องจากลูกค้ากลุ่มนี้สั่งซื้อแต่ละครั้งประมาณ 428เหรียญ ทางร้านควรติดต่อสอบถามลูกค้าและหาแนวทางแก้ไขเช่นเดียวกับลูกค้ากลุ่ม Needs Attention คอยส่งโปรโมชั่นเกี่ยวกับสินค้าที่ลูกค้าสนใจพร้อมกับบริการส่งฟรีโดยกำหนดระยะเวลาเพื่อกระตุ้นให้ลูกค้าใช้จ่ายทันที และจัดกิจกรรมแจกของรางวัลหรือส่วนลดเพื่อต้อนรับการกลับมา  
                 '''
                 )  
