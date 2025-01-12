@@ -391,7 +391,7 @@ if submit:
                     # Calculate total sales by time period
                     filtered_df['TimePeriod'] = filtered_df['InvoiceDate'].dt.hour.apply(time_of_day)
                     time_period_sales = filtered_df.groupby('TimePeriod' , as_index=False)['TotalSales'].sum()
-                    fig_bar1 = px.bar(time_period_sales, x='TimePeriod', y='TotalSales', color='TimePeriod')
+                    fig_bar1 = px.bar(time_period_sales, x='TimePeriod', y='TotalSales', color='TimePeriod', title='Sales by Time Period')
                     st.plotly_chart(fig_bar1, use_container_width=True)
 
                 cl1 , cl2 = st.columns(2)
